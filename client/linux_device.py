@@ -5,7 +5,7 @@ linux_device.py
 by: @RikkaNaa
 依赖: kdotool, requests
 '''
-from requests import post
+from requests import post,get
 from datetime import datetime
 from time import sleep
 from sys import stdout
@@ -22,7 +22,6 @@ CHECK_INTERVAL = 2
 BYPASS_SAME_REQUEST = True
 ENCODING = 'utf-8'  # 控制台输出所用编码，避免编码出错，可选 utf-8 或 gb18030
 SKIPPED_NAMES = ['', 'plasmashell']  # 当窗口名为其中任意一项时将不更新
-NOT_USING_NAMES = []  # 当窗口名为其中任意一项时视为未在使用
 # --- config end
 
 stdout = TextIOWrapper(stdout.buffer, encoding=ENCODING)  # https://stackoverflow.com/a/3218048/28091753
@@ -42,30 +41,35 @@ def print(msg: str, **kwargs):
 
 Url = f'{SERVER}/device/set'
 last_window = ''
-
+loop = 0
 
 def do_update():
+    global loop
     global last_window
     window = get_active_window_title()
     print(f'--- Window: `{window}`')
 
+    # 判断是否在使用
+    using = True
+    if loop >= 900: # 默认30分钟
+        using = False
+    if window != last_window:
+        loop = 0
+        using = True
+
     # 检测重复名称
     if (BYPASS_SAME_REQUEST and window == last_window):
         print('window not change, bypass')
-        return
+        loop += 1
+        if using != False:
+            return
 
     # 检查跳过名称
     for i in SKIPPED_NAMES:
         if i == window:
             print(f'* skipped: `{i}`')
+            loop = 0
             return
-
-    # 判断是否在使用
-    using = True
-    for i in NOT_USING_NAMES:
-        if i == window:
-            print(f'* not using: `{i}`')
-            using = False
 
     # POST to api
     print(f'POST {Url}')
@@ -79,6 +83,10 @@ def do_update():
         }, headers={
             'Content-Type': 'application/json'
         })
+        if using == True:
+            setstatus = get(url=f'{SERVER}/set/{SECRET}/0')
+        else:
+            setstatus = get(url=f'{SERVER}/set/{SECRET}/1')
         print(f'Response: {resp.status_code} - {resp.json()}')
     except Exception as e:
         print(f'Error: {e}')
@@ -107,6 +115,20 @@ if __name__ == '__main__':
             }, headers={
                 'Content-Type': 'application/json'
             })
+
+            setstatus = get(url=f'{SERVER}/set/{SECRET}/1')
             print(f'Response: {resp.status_code} - {resp.json()}')
         except Exception as e:
             print(f'Error: {e}')
+    except Exception as e:
+        resp = post(url=Url, json={
+            'secret': SECRET,
+            'id': DEVICE_ID,
+            'show_name': DEVICE_SHOW_NAME,
+            'using': False,
+            'app_name': f'{e}'
+        }, headers={
+            'Content-Type': 'application/json'
+        })
+
+        setstatus = get(url=f'{SERVER}/set/{SECRET}/1')
